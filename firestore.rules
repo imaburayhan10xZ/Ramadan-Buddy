@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (optional)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - lastLogin: string (optional)
+    //   - isAnonymous: boolean (optional)
+    //   - createdAt: string (optional)
+    //   - status: string (optional, enum: ['active', 'disabled', 'suspended'])
+    //
+    // Collection: user_stats
+    // Document ID: {userId}
+    // Fields:
+    //   - lastRequestDate: string (required, YYYY-MM-DD)
+    //   - requestCount: number (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "aburayhan10x@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid']) &&
+             data.uid is string &&
+             (!('email' in data) || data.email is string) &&
+             (!('status' in data) || data.status in ['active', 'disabled', 'suspended']);
+    }
+
+    function isValidUserStats(data) {
+      return data.keys().hasAll(['lastRequestDate', 'requestCount']) &&
+             data.lastRequestDate is string &&
+             data.lastRequestDate.matches("^\\d{4}-\\d{2}-\\d{2}$") &&
+             data.requestCount is number;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
+                      (!('role' in request.resource.data) || request.resource.data.role == 'user');
+      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && 
+                        request.resource.data.role == resource.data.role) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /user_stats/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserStats(request.resource.data) && 
+                      request.resource.data.requestCount == 1;
+      allow update: if isOwner(userId) && isValidUserStats(request.resource.data) && (
+        (request.resource.data.lastRequestDate == resource.data.lastRequestDate && 
+         request.resource.data.requestCount == resource.data.requestCount + 1 && 
+         request.resource.data.requestCount <= 8) ||
+        (request.resource.data.lastRequestDate != resource.data.lastRequestDate && 
+         request.resource.data.requestCount == 1)
+      );
+    }
+  }
+}

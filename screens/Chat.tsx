@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Copy, Check, Sparkles, RefreshCw, Trash2, ArrowDown, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { createChatSession } from '../services/ai';
+import { createChatSession, checkRateLimit, incrementRequestCount } from '../services/ai';
 import { ChatMessage } from '../types';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -55,6 +55,22 @@ const ChatScreen: React.FC = () => {
   const handleSend = async (textInput: string = input) => {
     if (!textInput.trim() || isLoading) return;
 
+    // Check rate limit
+    const { allowed } = await checkRateLimit();
+    if (!allowed) {
+      const limitMessage = language === 'bn' 
+        ? '⚠️ দুঃখিত, আপনি আজকের জন্য আপনার ৮টি এআই অনুরোধের সীমা অতিক্রম করেছেন। আগামীকাল আবার চেষ্টা করুন।' 
+        : '⚠️ Sorry, you have reached your limit of 8 AI requests for today. Please try again tomorrow.';
+      
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'model',
+        text: limitMessage,
+        timestamp: Date.now()
+      }]);
+      return;
+    }
+
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
@@ -67,6 +83,9 @@ const ChatScreen: React.FC = () => {
     setIsLoading(true);
 
     try {
+      // Increment count
+      await incrementRequestCount();
+
       const result = await chatSessionRef.current.sendMessageStream({ message: userMsg.text });
       const botMsgId = (Date.now() + 1).toString();
       

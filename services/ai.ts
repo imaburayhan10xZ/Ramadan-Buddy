@@ -1,12 +1,13 @@
 import { GoogleGenAI } from "@google/genai";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { auth, db } from "./firebase";
 import { ChatMessage, Dua, AppConfig } from "../types";
 
 // Helper to check if API key is present/valid
-// Supports both process.env (via DefinePlugin) and import.meta.env (Vite Native)
 const getApiKey = () => {
     // @ts-ignore
-    const viteKey = import.meta.env?.VITE_API_KEY;
-    const processKey = process.env.API_KEY;
+    const viteKey = import.meta.env?.VITE_GEMINI_API_KEY;
+    const processKey = process.env.GEMINI_API_KEY;
     return viteKey || processKey;
 };
 
@@ -14,6 +15,62 @@ const API_KEY = getApiKey();
 const isAiEnabled = !!API_KEY && API_KEY !== 'AIzaSyD-EXAMPLE-KEY-REPLACE-THIS';
 
 const ai = isAiEnabled ? new GoogleGenAI({ apiKey: API_KEY }) : null;
+
+const DAILY_LIMIT = 8;
+
+const getTodayDate = () => {
+  return new Date().toISOString().split('T')[0];
+};
+
+export const checkRateLimit = async (): Promise<{ allowed: boolean; remaining: number }> => {
+  const user = auth.currentUser;
+  if (!user) return { allowed: true, remaining: DAILY_LIMIT }; // Allow if not logged in (or handle differently)
+
+  const today = getTodayDate();
+  const statsRef = doc(db, "user_stats", user.uid);
+  
+  try {
+    const docSnap = await getDoc(statsRef);
+    if (!docSnap.exists()) {
+      return { allowed: true, remaining: DAILY_LIMIT };
+    }
+
+    const data = docSnap.data();
+    if (data.lastRequestDate !== today) {
+      return { allowed: true, remaining: DAILY_LIMIT };
+    }
+
+    const remaining = DAILY_LIMIT - data.requestCount;
+    return { allowed: remaining > 0, remaining: Math.max(0, remaining) };
+  } catch (error) {
+    console.error("Error checking rate limit:", error);
+    return { allowed: true, remaining: 1 }; // Fail open but cautious
+  }
+};
+
+export const incrementRequestCount = async () => {
+  const user = auth.currentUser;
+  if (!user) return;
+
+  const today = getTodayDate();
+  const statsRef = doc(db, "user_stats", user.uid);
+
+  try {
+    const docSnap = await getDoc(statsRef);
+    if (!docSnap.exists() || docSnap.data()?.lastRequestDate !== today) {
+      await setDoc(statsRef, {
+        lastRequestDate: today,
+        requestCount: 1
+      });
+    } else {
+      await updateDoc(statsRef, {
+        requestCount: docSnap.data()?.requestCount + 1
+      });
+    }
+  } catch (error) {
+    console.error("Error incrementing request count:", error);
+  }
+};
 
 const getSystemInstructionChat = (config: AppConfig) => `
 You are "Islamic Assistant" (ইসলামিক অ্যাসিস্ট্যান্ট), a knowledgeable, empathetic, and strictly Islamic AI companion for Bengali-speaking Muslims.
@@ -102,8 +159,17 @@ export const getRamadanTip = async (): Promise<string> => {
   if (!ai) {
     return getRandomFallback();
   }
+
+  // Check rate limit
+  const { allowed } = await checkRateLimit();
+  if (!allowed) {
+    return getRandomFallback();
+  }
   
   try {
+    // Increment count
+    await incrementRequestCount();
+
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: "Give me one short Islamic tip.",
@@ -133,8 +199,15 @@ export const getRamadanTip = async (): Promise<string> => {
 
 export const searchIslamicContent = async (query: string): Promise<Dua[]> => {
   if (!ai) return [];
+
+  // Check rate limit
+  const { allowed } = await checkRateLimit();
+  if (!allowed) return [];
   
   try {
+    // Increment count
+    await incrementRequestCount();
+
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `Fetch authentic Duas/Hadiths regarding: "${query}"`,

@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profile",
+      "description": "Stores user profile information and settings.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string", "format": "uri" },
+        "lastLogin": { "type": "string", "format": "date-time" },
+        "isAnonymous": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["active", "disabled", "suspended"] }
+      },
+      "required": ["uid"]
+    },
+    "user_stats": {
+      "title": "User Statistics",
+      "description": "Tracks user activity and rate limits.",
+      "type": "object",
+      "properties": {
+        "lastRequestDate": { "type": "string", "description": "YYYY-MM-DD format" },
+        "requestCount": { "type": "integer", "description": "Number of AI requests made today" }
+      },
+      "required": ["lastRequestDate", "requestCount"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "User profile document."
+    },
+    "/user_stats/{userId}": {
+      "schema": "user_stats",
+      "description": "User statistics for rate limiting."
+    }
+  }
+}
