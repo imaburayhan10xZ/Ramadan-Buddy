@@ -1,0 +1,7 @@
+{
+  "name": "Ramadan Buddy",
+  "description": "A Bangla-first, AI-powered Ramadan companion web app. Features include Sehri/Iftar timings, AI Islamic assistant, Ibadah tracker, Smart Tasbih, and Dual/Quran resources.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
